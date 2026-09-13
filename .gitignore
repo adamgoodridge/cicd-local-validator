@@ -40,3 +40,7 @@ out/
 ### Local Scripts ###
 /local-script/jobs-output/**
 !/local-script/jobs-output/README.md
+
+### Secrets ###
+.env
+application.properties
