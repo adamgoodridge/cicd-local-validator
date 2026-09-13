@@ -1,5 +1,6 @@
 package net.adamgoodridge.cicd_local_validator.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.adamgoodridge.cicd_local_validator.domain.JobResult;
 import net.adamgoodridge.cicd_local_validator.domain.JobResultStatus;
 import net.adamgoodridge.cicd_local_validator.domain.PipelineResultStatus;
@@ -9,12 +10,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -52,13 +59,82 @@ class ValidationControllerTest {
 	}
 
 	@Test
+	@SuppressWarnings("unchecked")
 	void runsValidPipelineLocally() throws Exception {
-		mockMvc.perform(post("/api/validation/run/local")
-				.contentType(MediaType.TEXT_PLAIN)
-				.content("stages: [test]\nunit:\n  image: alpine\n  script: echo local\n"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.pipelineStatus").value("PASSED"))
-			.andExpect(jsonPath("$.jobResults[0].status").value("PASSED"));
+		assumeTrue(isDockerAvailable(), "Docker not available");
+		MvcResult postResult = mockMvc.perform(post("/api/validation/run/local")
+						.contentType(MediaType.TEXT_PLAIN)
+						.content("stages: [test]\nunit:\n  image: alpine\n  script: echo local\n"))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.id").exists())
+				.andExpect(jsonPath("$.status").value("RUNNING"))
+				.andReturn();
+
+		String runId = new ObjectMapper()
+				.readTree(postResult.getResponse().getContentAsString())
+				.get("id").asText();
+
+		Map<UUID, CompletableFuture<ValidationRun>> runsById =
+				(Map<UUID, CompletableFuture<ValidationRun>>) ReflectionTestUtils.getField(controller, "runsById");
+		runsById.get(UUID.fromString(runId)).get(30, TimeUnit.SECONDS);
+
+		mockMvc.perform(get("/api/validation/runs/{runId}", runId))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.pipelineStatus").value("PASSED"))
+				.andExpect(jsonPath("$.jobResults[0].status").value("PASSED"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void returnsRunningStatusWhileInProgress() throws Exception {
+		UUID runId = UUID.randomUUID();
+		CompletableFuture<ValidationRun> pending = new CompletableFuture<>();
+		Map<UUID, CompletableFuture<ValidationRun>> runsById =
+				(Map<UUID, CompletableFuture<ValidationRun>>) ReflectionTestUtils.getField(controller, "runsById");
+		runsById.put(runId, pending);
+
+		mockMvc.perform(get("/api/validation/runs/{runId}/status", runId))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(runId.toString()))
+				.andExpect(jsonPath("$.status").value("RUNNING"));
+
+		mockMvc.perform(get("/api/validation/runs/{runId}", runId))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.status").value("RUNNING"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void returnsCompletedStatusAndResult() throws Exception {
+		UUID runId = UUID.randomUUID();
+		ValidationRun run = new ValidationRun(
+				runId,
+				List.of(new JobResult("unit", JobResultStatus.PASSED, 0, "ok")),
+				PipelineResultStatus.PASSED);
+		Map<UUID, CompletableFuture<ValidationRun>> runsById =
+				(Map<UUID, CompletableFuture<ValidationRun>>) ReflectionTestUtils.getField(controller, "runsById");
+		runsById.put(runId, CompletableFuture.completedFuture(run));
+
+		mockMvc.perform(get("/api/validation/runs/{runId}/status", runId))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(runId.toString()))
+				.andExpect(jsonPath("$.status").value("PASSED"));
+
+		mockMvc.perform(get("/api/validation/runs/{runId}", runId))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.pipelineStatus").value("PASSED"));
+	}
+
+	@Test
+	void returnsNotFoundForUnknownRunStatus() throws Exception {
+		mockMvc.perform(get("/api/validation/runs/{runId}/status", UUID.randomUUID()))
+				.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void returnsNotFoundForUnknownRunResult() throws Exception {
+		mockMvc.perform(get("/api/validation/runs/{runId}", UUID.randomUUID()))
+				.andExpect(status().isNotFound());
 	}
 
 	@Test
@@ -70,9 +146,9 @@ class ValidationControllerTest {
 				List.of(new JobResult("unit", JobResultStatus.PASSED, 0, "hello log")),
 				PipelineResultStatus.PASSED);
 
-		Map<UUID, ValidationRun> runsById =
-				(Map<UUID, ValidationRun>) ReflectionTestUtils.getField(controller, "runsById");
-		runsById.put(runId, run);
+		Map<UUID, CompletableFuture<ValidationRun>> runsById =
+				(Map<UUID, CompletableFuture<ValidationRun>>) ReflectionTestUtils.getField(controller, "runsById");
+		runsById.put(runId, CompletableFuture.completedFuture(run));
 
 		mockMvc.perform(get("/api/validation/runs/{runId}/jobs/{jobName}/log", runId, "unit"))
 				.andExpect(status().isOk())
@@ -95,9 +171,9 @@ class ValidationControllerTest {
 				runId,
 				List.of(new JobResult("build", JobResultStatus.PASSED, 0, "done")),
 				PipelineResultStatus.PASSED);
-		Map<UUID, ValidationRun> runsById =
-				(Map<UUID, ValidationRun>) ReflectionTestUtils.getField(controller, "runsById");
-		runsById.put(runId, run);
+		Map<UUID, CompletableFuture<ValidationRun>> runsById =
+				(Map<UUID, CompletableFuture<ValidationRun>>) ReflectionTestUtils.getField(controller, "runsById");
+		runsById.put(runId, CompletableFuture.completedFuture(run));
 
 		mockMvc.perform(get("/api/validation/runs/{runId}/jobs/{jobName}/log", runId, "unit"))
 				.andExpect(status().isNotFound());
@@ -115,9 +191,9 @@ class ValidationControllerTest {
 						new JobResult("build", JobResultStatus.PASSED, 0, "done"),
 						new JobResult("test", JobResultStatus.PASSED, 0, "ok")),
 				PipelineResultStatus.PASSED);
-		Map<UUID, ValidationRun> runsById =
-				(Map<UUID, ValidationRun>) ReflectionTestUtils.getField(controller, "runsById");
-		runsById.put(runId, run);
+		Map<UUID, CompletableFuture<ValidationRun>> runsById =
+				(Map<UUID, CompletableFuture<ValidationRun>>) ReflectionTestUtils.getField(controller, "runsById");
+		runsById.put(runId, CompletableFuture.completedFuture(run));
 
 		mockMvc.perform(get("/api/validation/runs/{runId}/jobs", runId))
 				.andExpect(status().isOk())
@@ -132,5 +208,14 @@ class ValidationControllerTest {
 	void returnsNotFoundWhenListingJobsForUnknownRun() throws Exception {
 		mockMvc.perform(get("/api/validation/runs/{runId}/jobs", UUID.randomUUID()))
 				.andExpect(status().isNotFound());
+	}
+
+	private boolean isDockerAvailable() {
+		try {
+			Process p = new ProcessBuilder("docker", "info").start();
+			return p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0;
+		} catch (IOException | InterruptedException e) {
+			return false;
+		}
 	}
 }

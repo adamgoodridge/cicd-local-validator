@@ -124,6 +124,40 @@ submit_validation_run() {
   echo "$run_id"
 }
 
+poll_until_complete() {
+  local run_id="$1"
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local i=0
+  local status
+
+  while true; do
+    status=$(curl -sS "$SERVER_URL/api/validation/runs/$run_id/status" | jq -r '.status // empty')
+    [ "$status" != "RUNNING" ] && break
+    if [ -t 2 ]; then
+      printf '\r  %s  Running...' "${frames[$((i % ${#frames[@]}))]}" >&2
+    fi
+    i=$((i + 1))
+    sleep 0.5
+  done
+
+  [ -t 2 ] && printf '\r\033[K' >&2
+  echo "$status"
+}
+
+print_status() {
+  local status="$1"
+  if [ -t 1 ]; then
+    case "$status" in
+      PASSED)  printf '\033[32mPipeline %s\033[0m\n' "$status" ;;
+      FAILED)  printf '\033[31mPipeline %s\033[0m\n' "$status" ;;
+      BLOCKED) printf '\033[33mPipeline %s\033[0m\n' "$status" ;;
+      *)       printf 'Pipeline %s\n' "$status" ;;
+    esac
+  else
+    echo "Pipeline $status"
+  fi
+}
+
 fetch_job_logs() {
   local run_id="$1"
   local jobs_response
@@ -149,9 +183,15 @@ main() {
 
   local run_id
   run_id=$(submit_validation_run "$payload_file")
-  echo "$run_id"
+  echo "Run ID: $run_id"
+
+  local final_status
+  final_status=$(poll_until_complete "$run_id")
+  print_status "$final_status"
 
   fetch_job_logs "$run_id"
+
+  [ "$final_status" = "PASSED" ] || exit 1
 }
 
 main "$@"

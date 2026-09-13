@@ -5,6 +5,7 @@ test-2:
     - build
   script:
     - echo "Running tests"
+    - sleep 15
     - |
       echo "Examining build output"
       cat build-output.txt
