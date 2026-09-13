@@ -1,9 +1,0 @@
-stages: [build]
-variables:
-  APP_MODE: local
-build:
-  image: alpine:latest
-  variables:
-    JOB_VAR: val
-  script: echo hello
-

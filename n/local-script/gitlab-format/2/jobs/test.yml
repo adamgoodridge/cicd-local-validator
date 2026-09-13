@@ -1,8 +1,0 @@
-test:
-  image: alpine:latest
-  stage: test
-  needs:
-    - build
-  script:
-    - echo "Running tests"
-    - cat build-output.txt
