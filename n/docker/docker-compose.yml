@@ -1,0 +1,15 @@
+services:
+  cicd-local-validator:
+    image: cicd-local-validator:local
+    container_name: cicd-local-validator
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOCKER_HOST: unix://${CONTAINER_SOCKET_CONTAINER_PATH:-/var/run/docker.sock}
+      CICD_EXECUTION_LOCAL_WORKSPACE: ${LOCAL_WORKSPACE_PATH}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${CONTAINER_SOCKET_HOST_PATH:-/var/run/docker.sock}:${CONTAINER_SOCKET_CONTAINER_PATH:-/var/run/docker.sock}
+      - ${LOCAL_WORKSPACE_PATH}:${LOCAL_WORKSPACE_PATH}

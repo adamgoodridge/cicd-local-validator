@@ -1,0 +1,40 @@
+stages:
+  - build
+  - test
+
+variables:
+  APP_MODE: local
+
+build:
+  image: alpine:latest
+  stage: build
+  artifacts:
+    paths:
+      - build-output.txt
+    expire_in: 1 hour
+  script:
+    - echo "Building in $APP_MODE"
+    - printf "artifacmhft content\n" > build-output.txt
+    - cat build-output.txt
+    - ls -la
+
+test:
+  image: alpine:latest
+  stage: test
+  needs:
+    - build
+  script:
+    - echo "Running tests"
+    - cat build-output.txt
+
+test-2:
+  image: alpine:latest
+  stage: test
+  needs:
+    - build
+  script:
+    - echo "Running tests"
+    - |
+      echo "Examining build output"
+      cat build-output.txt
+      echo "Test completed"
