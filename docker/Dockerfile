@@ -8,13 +8,6 @@ COPY settings.gradle settings.gradle
 COPY build.gradle build.gradle
 COPY src src
 
-RUN chmod +x ./gradlew && ./gradlew --no-daemon bootJar
-
-FROM eclipse-temurin:25-jre
-
-WORKDIR /app
-COPY --from=builder /workspace/build/libs/*.jar /app/app.jar
-COPY trusted-certs /trusted-certs
 RUN find /trusted-certs -type f -name '*.pem' -exec sh -c '\
 		for certificate do \
 			certificate_name=$(basename "$certificate" .pem); \
@@ -22,6 +15,16 @@ RUN find /trusted-certs -type f -name '*.pem' -exec sh -c '\
 			keytool -importcert -cacerts -storepass changeit -noprompt \
 				-alias "$certificate_name" -file "$certificate"; \
 		done' sh {} +
+
+RUN update-ca-certificates
+
+RUN chmod +x ./gradlew && ./gradlew --no-daemon bootJar
+
+FROM eclipse-temurin:25-jre
+
+WORKDIR /app
+COPY --from=builder /workspace/build/libs/*.jar /app/app.jar
+COPY trusted-certs /trusted-certs
 
 # Provide Docker/Podman CLIs for socket-based local Job execution from inside the container.
 RUN apt-get update \
