@@ -1,5 +1,6 @@
 package net.adamgoodridge.cicd_local_validator.web;
 
+import net.adamgoodridge.cicd_local_validator.constants.*;
 import net.adamgoodridge.cicd_local_validator.domain.PipelineResultStatus;
 import net.adamgoodridge.cicd_local_validator.domain.PipelineDefinition;
 import net.adamgoodridge.cicd_local_validator.domain.StaticValidationResult;
@@ -51,12 +52,11 @@ public class ValidationController {
 	private final Map<UUID, PipelineDefinition> pipelinesByRunId;
 	private final ExecutorService executorService;
 
-	public ValidationController(
-			@Value("${cicd.execution.local.workspace:${user.dir}}") String localWorkspace) {
+	public ValidationController() {
 		this.parser = new PipelineParser();
 		this.validator = new PipelineValidator(parser);
 		this.scheduler = new PipelineScheduler();
-		this.localWorkspace = Path.of(localWorkspace).toAbsolutePath().normalize();
+		this.localWorkspace = Path.of(CustomConstants.getInstance().localWorkspace).toAbsolutePath().normalize();
 		this.runsById = new ConcurrentHashMap<>();
 		this.pipelinesByRunId = new ConcurrentHashMap<>();
 		this.executorService = Executors.newCachedThreadPool();
