@@ -170,6 +170,19 @@ fetch_job_logs() {
   done
 }
 
+fetch_job_artifacts() {
+  local run_id="$1"
+  local jobs_response
+
+  jobs_response=$(curl -sS "$SERVER_URL/api/validation/runs/$run_id/jobs")
+
+  printf '%s\n' "$jobs_response" | jq -r '.[] | select(.hasArtifacts) | .name' | while IFS= read -r job_name; do
+    [ -n "$job_name" ] || continue
+    curl -fL -sS "$SERVER_URL/api/validation/runs/$run_id/jobs/$job_name/artifacts" \
+      -o "$OUTPUT_DIR/$job_name-artifacts.zip"
+  done
+}
+
 main() {
   load_env_file
 
@@ -190,6 +203,7 @@ main() {
   print_status "$final_status"
 
   fetch_job_logs "$run_id"
+  fetch_job_artifacts "$run_id"
 
   [ "$final_status" = "PASSED" ] || exit 1
 }

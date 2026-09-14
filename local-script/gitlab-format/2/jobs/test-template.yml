@@ -1,0 +1,5 @@
+.test-template:
+  image: alpine:latest
+  stage: test
+  tags:
+    - shared

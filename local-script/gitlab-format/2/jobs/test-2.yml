@@ -1,11 +1,9 @@
 test-2:
-  image: alpine:latest
-  stage: test
+  extends: .test-template
   needs:
     - build
   script:
     - echo "Running tests"
-    - sleep 15
     - |
       echo "Examining build output"
       cat build-output.txt

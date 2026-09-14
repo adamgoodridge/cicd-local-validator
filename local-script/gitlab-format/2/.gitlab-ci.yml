@@ -8,4 +8,5 @@ variables:
 include:
   - local: 'jobs/build.yml'
   - local: 'jobs/test.yml'
+  - local: 'jobs/test-template.yml'
   - local: 'jobs/test-2.yml'
