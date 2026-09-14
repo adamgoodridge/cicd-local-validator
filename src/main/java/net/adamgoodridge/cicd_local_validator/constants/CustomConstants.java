@@ -7,7 +7,7 @@ import org.springframework.stereotype.*;
 
 @Component
 public class CustomConstants {
-	public String localWorkspace = "/workspace";
+	public String localWorkspace = "${custom.local.workspace:./workspace}";
 	@Value("${custom.docker.command:docker}")
 	public String dockerCommand;
 	@Getter

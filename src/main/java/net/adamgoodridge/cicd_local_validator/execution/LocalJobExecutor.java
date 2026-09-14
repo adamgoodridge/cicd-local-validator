@@ -5,6 +5,7 @@ import net.adamgoodridge.cicd_local_validator.constants.*;
 import net.adamgoodridge.cicd_local_validator.domain.JobDefinition;
 import net.adamgoodridge.cicd_local_validator.domain.JobResult;
 import net.adamgoodridge.cicd_local_validator.domain.JobResultStatus;
+import net.adamgoodridge.cicd_local_validator.domain.ServiceDefinition;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,12 +49,24 @@ public class LocalJobExecutor implements DockerJobExecutor {
 
 	@Override
 	public JobResult execute(JobDefinition job, Map<String, String> variables) {
+		String network = job.services().isEmpty()
+				? null
+				: "cicd-local-" + job.name().replaceAll("[^a-zA-Z0-9_.-]", "-");
+		List<String> serviceNames = List.of();
 		try {
 			Path jobWorkspace = prepareWorkspace(job);
+			if (network != null) {
+				createNetwork(network);
+				serviceNames = startServices(job.services(), network, variables);
+			}
 			List<String> command = new ArrayList<>(List.of(
 					resolveDockerCommand(), "run", "--rm",
 					"--volume", jobWorkspace.toAbsolutePath() + ":/workspace",
 					"--workdir", "/workspace"));
+			if (network != null) {
+				command.add(3, network);
+				command.add(3, "--network");
+			}
 			for (Map.Entry<String, String> entry : variables.entrySet()) {
 				command.add("--env");
 				command.add(entry.getKey() + "=" + entry.getValue());
@@ -88,6 +101,70 @@ public class LocalJobExecutor implements DockerJobExecutor {
 			Thread.currentThread().interrupt();
 			return new JobResult(job.name(), JobResultStatus.FAILED, null,
 					"Local Job execution was interrupted.");
+		} finally {
+			if (network != null) {
+				removeServices(serviceNames, network);
+			}
+		}
+	}
+
+	private void createNetwork(String network) throws IOException, InterruptedException {
+		runDocker(List.of(resolveDockerCommand(), "network", "create", network));
+	}
+
+	private List<String> startServices(List<ServiceDefinition> services, String network, Map<String, String> variables)
+			throws IOException, InterruptedException {
+		List<String> names = new ArrayList<>();
+		for (int index = 0; index < services.size(); index++) {
+			ServiceDefinition service = services.get(index);
+			String containerName = network + "-service-" + index;
+			List<String> command = new ArrayList<>(List.of(resolveDockerCommand(), "run", "-d", "--rm", "--network", network,
+					"--name", containerName));
+			for (String alias : service.aliases()) {
+				command.add("--network-alias");
+				command.add(alias);
+			}
+			for (Map.Entry<String, String> entry : variables.entrySet()) {
+				command.add("--env");
+				command.add(entry.getKey() + "=" + entry.getValue());
+			}
+			if (!service.entrypoint().isEmpty()) {
+				command.add("--entrypoint");
+				command.add(service.entrypoint().getFirst());
+			}
+			command.add(service.image());
+			if (!service.command().isEmpty()) {
+				command.addAll(service.command());
+			}
+			runDocker(command);
+			names.add(containerName);
+		}
+		return names;
+	}
+
+	private void removeServices(List<String> serviceNames, String network) {
+		for (String serviceName : serviceNames) {
+			try {
+				runDocker(List.of(resolveDockerCommand(), "rm", "-f", serviceName));
+			} catch (IOException | InterruptedException exception) {
+				Thread.currentThread().interrupt();
+			}
+		}
+		removeNetwork(network);
+	}
+
+	private void removeNetwork(String network) {
+		try {
+			runDocker(List.of(resolveDockerCommand(), "network", "rm", network));
+		} catch (IOException | InterruptedException exception) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	private void runDocker(List<String> command) throws IOException, InterruptedException {
+		Process process = startProcess(command);
+		if (!process.waitFor(timeout, timeoutUnit) || process.exitValue() != 0) {
+			throw new IOException("Docker command failed: " + String.join(" ", command));
 		}
 	}
 

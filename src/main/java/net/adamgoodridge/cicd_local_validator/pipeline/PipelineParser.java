@@ -15,7 +15,7 @@ import java.util.Set;
 public class PipelineParser {
 	private static final Set<String> RESERVED_KEYS = Set.of("stages", "variables", "yamlVariables");
 	private static final Set<String> SUPPORTED_JOB_KEYS = Set.of(
-			"image", "script", "stage", "tags", "depends_on", "needs", "variables", "yamlVariables", "artifacts", "allow_failure", "when", "extends");
+			"image", "script", "stage", "tags", "depends_on", "needs", "variables", "yamlVariables", "artifacts", "allow_failure", "when", "extends", "services");
 
 	public PipelineParseResult parse(String source) {
 		List<ValidationIssue> issues = new ArrayList<>();
@@ -119,9 +119,45 @@ public class PipelineParser {
 		yamlVariables.addAll(readVariables(values.get("variables"), name + ".variables", issues));
 		yamlVariables.addAll(readVariables(values.get("yamlVariables"), name + ".yamlVariables", issues));
 		Artifact artifacts = readArtifact(values.get("artifacts"), name + ".artifacts", issues);
+		List<ServiceDefinition> services = readServices(values.get("services"), name + ".services", issues);
 		boolean allowFailure = readBoolean(values.get("allow_failure"), name + ".allow_failure", issues);
 		boolean alwaysRun = "always".equals(readString(values.get("when"), name + ".when", issues, "on_success"));
-		return new JobDefinition(name, image, script, stage, needs, yamlVariables, artifacts, allowFailure, alwaysRun);
+		return new JobDefinition(name, image, script, stage, needs, yamlVariables, artifacts, allowFailure, alwaysRun, services);
+	}
+
+	private List<ServiceDefinition> readServices(Object value, String path, List<ValidationIssue> issues) {
+		if (value == null) {
+			return List.of();
+		}
+		if (!(value instanceof Collection<?> collection)) {
+			issues.add(new ValidationIssue(path, "Services must be a list of strings or mappings."));
+			return List.of();
+		}
+		List<ServiceDefinition> services = new ArrayList<>();
+		for (Object item : collection) {
+			if (item instanceof String image) {
+				services.add(new ServiceDefinition(image, List.of(), List.of(), List.of()));
+				continue;
+			}
+			if (!(item instanceof Map<?, ?> serviceMap)) {
+				issues.add(new ValidationIssue(path, "Service entries must be strings or mappings."));
+				continue;
+			}
+			String servicePath = path + "[" + services.size() + "]";
+			String image = readString(serviceMap.get("name"), servicePath + ".name", issues);
+			List<String> aliases = readAliases(serviceMap.get("alias"), servicePath + ".alias", issues);
+			List<String> command = readStringList(serviceMap.get("command"), servicePath + ".command", issues);
+			List<String> entrypoint = readStringList(serviceMap.get("entrypoint"), servicePath + ".entrypoint", issues);
+			services.add(new ServiceDefinition(image, aliases, command, entrypoint));
+		}
+		return services;
+	}
+
+	private List<String> readAliases(Object value, String path, List<ValidationIssue> issues) {
+		if (value instanceof String aliases) {
+			return List.of(aliases.split("[ ,]+"));
+		}
+		return readStringList(value, path, issues);
 	}
 
 	private Artifact readArtifact(Object value, String path, List<ValidationIssue> issues) {

@@ -23,7 +23,7 @@ class PipelineValidatorTest {
 	}
 
 	@Test
-	void reportsUnsupportedJobProperties() {
+	void acceptsGitlabServices() {
 		var result = validator.validate("""
 				stages: [test]
 				unit:
@@ -32,10 +32,6 @@ class PipelineValidatorTest {
 				  services: [docker:dind]
 				""");
 
-		assertThat(result.isValid()).isFalse();
-		assertThat(result.issues()).anySatisfy(issue -> {
-			assertThat(issue.path()).isEqualTo("unit.services");
-			assertThat(issue.message()).isEqualTo("Unsupported Job property.");
-		});
+		assertThat(result.isValid()).isTrue();
 	}
 }
