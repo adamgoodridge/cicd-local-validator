@@ -1,0 +1,14 @@
+test:
+  image: alpine:latest
+  stage: test
+  depends_on:
+    - build
+  needs:
+    - build
+  script:
+    - echo "Running tests"
+    - cat build-output.txt
+    - printf "test results\n" > test-output.txt
+  artifacts:
+    paths:
+      - test-output.txt

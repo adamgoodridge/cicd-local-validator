@@ -1,0 +1,10 @@
+test-2:
+  extends: .test-template
+  needs:
+    - build
+  script:
+    - echo "Running tests"
+    - |
+      echo "Examining build output"
+      cat build-output.txt
+      echo "Test completed like this"

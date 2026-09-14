@@ -1,0 +1,12 @@
+build:
+  image: alpine:latest
+  stage: build
+  artifacts:
+    paths:
+      - build-output.txt
+    expire_in: 1 hour
+  script:
+    - echo "Building in $APP_MODE"
+    - printf "artifacmhft content\n" > build-output.txt
+    - cat build-output.txt
+    - ls -la
